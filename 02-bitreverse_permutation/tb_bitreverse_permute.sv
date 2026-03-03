@@ -1,52 +1,26 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 03/03/2026 10:51:48 PM
-// Design Name: 
-// Module Name: tb_bitreverse_permute
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
 
-
-/**
- * @file bitreverse_permute_bram_tb
- * @brief Testbench for bitreverse_permute
- */
-
-`timescale 1ns / 1ps
-
-module bitreverse_permute_bram_tb;
+module bitreverse_permute_tb;
 
     parameter DATA_WIDTH = 16;
     parameter MAX_BLOCK_LENGTH_LOG2 = 8;
+    localparam int MAX_DEPTH = 1 << MAX_BLOCK_LENGTH_LOG2;
 
-    logic                                     clk;
-    logic                                     srst;
+    logic clk;
+    logic srst;
 
-    logic [                   DATA_WIDTH-1:0] tdata_i;
-    logic                                     tvalid_i;
+    logic [DATA_WIDTH-1:0] tdata_i;
+    logic                  tvalid_i;
+    logic [$clog2(MAX_BLOCK_LENGTH_LOG2+1)-1:0] block_length_log2_i;
 
-    logic [$clog2(MAX_BLOCK_LENGTH_LOG2)-1:0] block_length_log2_i;
+    logic [DATA_WIDTH-1:0] tdata_o;
+    logic                  tvalid_o;
 
-    logic [                   DATA_WIDTH-1:0] tdata_o;
-    logic                                     tvalid_o;
-
+    // Clock
     initial clk = 0;
-    always #5 clk = ~clk;  // 100 MHz
+    always #5 clk = ~clk;
 
-
+    // DUT instantiation
     bitreverse_permute #(
         .DATA_WIDTH(DATA_WIDTH),
         .MAX_BLOCK_LENGTH_LOG2(MAX_BLOCK_LENGTH_LOG2)
@@ -60,66 +34,66 @@ module bitreverse_permute_bram_tb;
         .tvalid_o(tvalid_o)
     );
 
-    localparam MAX_BLOCK = 1 << (MAX_BLOCK_LENGTH_LOG2 + 1);
-    logic [DATA_WIDTH-1:0] input_block[0:MAX_BLOCK-1];
-    logic [DATA_WIDTH-1:0] expected_block[0:MAX_BLOCK-1];
+    logic [DATA_WIDTH-1:0] input_block   [0:MAX_DEPTH-1];
+    logic [DATA_WIDTH-1:0] expected_block[0:MAX_DEPTH-1];
 
-    function automatic [MAX_BLOCK_LENGTH_LOG2:0] bitrev(input [MAX_BLOCK_LENGTH_LOG2-1:0] value, input int width);
-        logic [MAX_BLOCK_LENGTH_LOG2-1:0] tmp;
+    function int bitrev_block(input int value, input int width);
+        int rev;
         int i;
         begin
-            tmp = '0;
-            for (i = 0; i < width; i++) tmp[i] = value[width-1-i];
-            return tmp;
+            rev = 0;
+            for (i = 0; i < width; i = i + 1)
+                rev = rev | (((value >> i) & 1) << (width-1-i));
+            return rev & ((1 << width)-1);
         end
     endfunction
 
     initial begin
-        srst = 1;
-        tvalid_i = 0;
-        tdata_i = '0;
-        block_length_log2_i = 7;
+        int N = 1 << (7+1); // 256
+        int sent = 0;
+        int received = 0;
+        int timeout = 0;
 
-        #20 srst = 0;
+        srst = 1; tvalid_i = 0; tdata_i = 0; block_length_log2_i = 7;
+        repeat (5) @(posedge clk);
+        srst = 0;
 
-        for (int i = 0; i < (1 << (block_length_log2_i + 1)); i++) begin
+        for (int i = 0; i < N; i++) begin
             input_block[i] = i;
-            expected_block[bitrev(i, block_length_log2_i+1)] = i;
+            expected_block[bitrev_block(i, block_length_log2_i+1)] = i;
         end
 
-        for (int i = 0; i <= (1 << (block_length_log2_i + 1));) begin
+        sent = 0;
+        while (sent < N) begin
             @(posedge clk);
-            if ($urandom_range(0, 1)) begin
+            if ($urandom_range(0,1)) begin
                 tvalid_i <= 1;
-                tdata_i  <= input_block[i];
-                i = i + 1;
-            end else begin
-                tvalid_i <= 0;
+                tdata_i  <= input_block[sent];
+                sent = sent + 1;
+            end else tvalid_i <= 0;
+        end
+        @(posedge clk); tvalid_i <= 0;
+
+        received = 0;
+        timeout  = 0;
+        while (received < N) begin
+            @(posedge clk);
+            if (tvalid_o) begin
+                if (tdata_o !== expected_block[received]) begin
+                    $display("ERROR at %0d: got %0d expected %0d", received, tdata_o, expected_block[received]);
+                    $fatal;
+                end
+                received = received + 1;
+            end
+            timeout = timeout + 1;
+            if (timeout > 10000) begin
+                $display("TIMEOUT");
+                $fatal;
             end
         end
-        tvalid_i <= 0;
-
-        wait_output();
 
         $display("TEST PASSED");
-        $stop;
+        $finish;
     end
-
-    task automatic wait_output();
-        int count;
-        begin
-            count = 0;
-            while (count < (1 << (block_length_log2_i + 1))) begin
-                @(posedge clk);
-                if (tvalid_o) begin
-                    if (tdata_o !== expected_block[count + 1]) begin
-                        $display("ERROR: output mismatch at count %0d: got %0d, expected %0d", count, tdata_o, expected_block[count]);
-                        $stop;
-                    end
-                    count = count + 1;
-                end
-            end
-        end
-    endtask
 
 endmodule
