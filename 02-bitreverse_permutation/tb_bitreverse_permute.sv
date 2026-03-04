@@ -1,26 +1,24 @@
 `timescale 1ns / 1ps
 
-module bitreverse_permute_tb;
+module bitreverse_permute_bram_tb;
 
     parameter DATA_WIDTH = 16;
     parameter MAX_BLOCK_LENGTH_LOG2 = 8;
-    localparam int MAX_DEPTH = 1 << MAX_BLOCK_LENGTH_LOG2;
 
     logic clk;
     logic srst;
 
     logic [DATA_WIDTH-1:0] tdata_i;
     logic                  tvalid_i;
-    logic [$clog2(MAX_BLOCK_LENGTH_LOG2+1)-1:0] block_length_log2_i;
+
+    logic [$clog2(MAX_BLOCK_LENGTH_LOG2)-1:0] block_length_log2_i;
 
     logic [DATA_WIDTH-1:0] tdata_o;
     logic                  tvalid_o;
 
-    // Clock
     initial clk = 0;
-    always #5 clk = ~clk;
+    always #5 clk = ~clk;  // 100 MHz
 
-    // DUT instantiation
     bitreverse_permute #(
         .DATA_WIDTH(DATA_WIDTH),
         .MAX_BLOCK_LENGTH_LOG2(MAX_BLOCK_LENGTH_LOG2)
@@ -34,66 +32,101 @@ module bitreverse_permute_tb;
         .tvalid_o(tvalid_o)
     );
 
-    logic [DATA_WIDTH-1:0] input_block   [0:MAX_DEPTH-1];
-    logic [DATA_WIDTH-1:0] expected_block[0:MAX_DEPTH-1];
+    localparam FRAME_LOG2 = 3;  // 1 << Frame_log2 elements
+    localparam FRAMES     = 4;
 
-    function int bitrev_block(input int value, input int width);
-        int rev;
+    localparam BLOCK = 1 << FRAME_LOG2;
+    localparam TOTAL = BLOCK * FRAMES;
+
+    logic [DATA_WIDTH-1:0] input_stream    [0:TOTAL-1];
+    logic [DATA_WIDTH-1:0] expected_stream [0:TOTAL-1];
+
+    function automatic int bitrev(input int value, input int width);
+        int result;
         int i;
         begin
-            rev = 0;
-            for (i = 0; i < width; i = i + 1)
-                rev = rev | (((value >> i) & 1) << (width-1-i));
-            return rev & ((1 << width)-1);
+            result = 0;
+            for (i = 0; i < width; i++)
+                result |= ((value >> i) & 1) << (width-1-i);
+            return result;
         end
     endfunction
 
     initial begin
-        int N = 1 << (7+1); // 256
-        int sent = 0;
-        int received = 0;
-        int timeout = 0;
+        int f, i, global_index, rev;
 
-        srst = 1; tvalid_i = 0; tdata_i = 0; block_length_log2_i = 7;
-        repeat (5) @(posedge clk);
+        srst = 1;
+        tvalid_i = 0;
+        tdata_i  = 0;
+        block_length_log2_i = FRAME_LOG2;
+        #20;
         srst = 0;
 
-        for (int i = 0; i < N; i++) begin
-            input_block[i] = i;
-            expected_block[bitrev_block(i, block_length_log2_i+1)] = i;
-        end
+        for (f = 0; f < FRAMES; f = f + 1) begin
+            int block_start = f * BLOCK;
+            for (i = 0; i < BLOCK; i = i + 1) begin
+                global_index = block_start + i;
+                input_stream[global_index] = global_index;
 
-        sent = 0;
-        while (sent < N) begin
-            @(posedge clk);
-            if ($urandom_range(0,1)) begin
-                tvalid_i <= 1;
-                tdata_i  <= input_block[sent];
-                sent = sent + 1;
-            end else tvalid_i <= 0;
-        end
-        @(posedge clk); tvalid_i <= 0;
-
-        received = 0;
-        timeout  = 0;
-        while (received < N) begin
-            @(posedge clk);
-            if (tvalid_o) begin
-                if (tdata_o !== expected_block[received]) begin
-                    $display("ERROR at %0d: got %0d expected %0d", received, tdata_o, expected_block[received]);
-                    $fatal;
-                end
-                received = received + 1;
-            end
-            timeout = timeout + 1;
-            if (timeout > 10000) begin
-                $display("TIMEOUT");
-                $fatal;
+                rev = bitrev(i, FRAME_LOG2);
+                expected_stream[block_start + rev] = global_index;
             end
         end
 
-        $display("TEST PASSED");
-        $finish;
+        fork
+            drive_stream();
+            check_stream();
+        join
+
+        $display("=====================================");
+        $display("STREAMING MULTI-FRAME TEST PASSED");
+        $display("=====================================");
+        $stop;
     end
+
+    task automatic drive_stream;
+        int i;
+        begin
+            for (i = 0; i < TOTAL; i = i + 1) begin
+                @(posedge clk);
+                tvalid_i <= 1;
+                tdata_i  <= input_stream[i];
+            end
+            @(posedge clk);
+            tvalid_i <= 0;
+        end
+    endtask
+
+    task automatic check_stream;
+        int count;
+        reg started;
+        begin
+            count   = 0;
+            started = 0;
+
+            // wait for ready = 1
+            #(BLOCK*10);
+
+            while (count < TOTAL) begin
+                @(posedge clk);
+
+                if (tvalid_o) begin
+                    if (!started) started = 1;
+
+                    if (tdata_o !== expected_stream[count]) begin
+                        $display("ERROR at %0d: got %0d expected %0d",
+                                 count, tdata_o, expected_stream[count]);
+                        $stop;
+                    end
+
+                    count = count + 1;
+                end
+                else if (started) begin
+                    $display("ERROR: tvalid_o dropped during streaming at %0d", count);
+                    $stop;
+                end
+            end
+        end
+    endtask
 
 endmodule
