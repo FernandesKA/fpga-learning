@@ -64,13 +64,19 @@ module bitreverse_permute_bram #(
         end
     end
 
-    function automatic logic [MAX_BLOCK_LENGTH_LOG2:0] bitrev;
-        input logic [MAX_BLOCK_LENGTH_LOG2:0] value;
-        input int width;
+    function automatic logic [MAX_BLOCK_LENGTH_LOG2:0] bitrev(input logic [MAX_BLOCK_LENGTH_LOG2:0] value,
+                                                              input logic [$clog2(MAX_BLOCK_LENGTH_LOG2 + 1):0] width);
+        logic [MAX_BLOCK_LENGTH_LOG2:0] result;
         int i;
         begin
-            bitrev = '0;
-            for (i = 0; i < width; i = i + 1) bitrev[i] = value[width-1-i];
+            result = '0;
+
+            for (i = 0; i <= MAX_BLOCK_LENGTH_LOG2; i++) begin
+                if (i < width) result[i] = value[width-1-i];
+                else result[i] = 1'b0;
+            end
+
+            return result;
         end
     endfunction
 
