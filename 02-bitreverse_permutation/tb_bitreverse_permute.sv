@@ -19,7 +19,7 @@ module bitreverse_permute_bram_tb;
     initial clk = 0;
     always #5 clk = ~clk;  // 100 MHz
 
-    bitreverse_permute #(
+    bitreverse_pingpong_xpm #(
         .DATA_WIDTH(DATA_WIDTH),
         .MAX_BLOCK_LENGTH_LOG2(MAX_BLOCK_LENGTH_LOG2)
     ) dut (
