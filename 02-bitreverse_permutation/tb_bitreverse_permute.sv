@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module bitreverse_permute_bram_tb;
+module bitreverse_permute_tb;
 
     parameter DATA_WIDTH = 16;
     parameter MAX_BLOCK_LENGTH_LOG2 = 7;
@@ -19,7 +19,7 @@ module bitreverse_permute_bram_tb;
     initial clk = 0;
     always #5 clk = ~clk;  // 100 MHz
 
-    bitreverse_pingpong_xpm #(
+    bitreverse_permute #(
         .DATA_WIDTH(DATA_WIDTH),
         .MAX_BLOCK_LENGTH_LOG2(MAX_BLOCK_LENGTH_LOG2)
     ) dut (
@@ -41,13 +41,13 @@ module bitreverse_permute_bram_tb;
     logic [DATA_WIDTH-1:0] input_stream   [0:TOTAL-1];
     logic [DATA_WIDTH-1:0] expected_stream[0:TOTAL-1];
 
-    function automatic int bitrev(input int value, input int width);
-        int result;
+    function automatic logic [MAX_BLOCK_LENGTH_LOG2:0] bitrev;
+        input logic [MAX_BLOCK_LENGTH_LOG2:0] value;
+        input int width;
         int i;
         begin
-            result = 0;
-            for (i = 0; i < width; i++) result |= ((value >> i) & 1) << (width - 1 - i);
-            return result;
+            bitrev = '0;
+            for (i = 0; i < width; i = i + 1) bitrev[i] = value[width-1-i];
         end
     endfunction
 
